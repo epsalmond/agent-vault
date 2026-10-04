@@ -31,6 +31,7 @@ fatal() {
 trap cleanup_children EXIT
 
 [[ $# -gt 0 && "$1" == server ]] || fatal 'this image only runs the server command'
+[[ "$(id -u)" -eq 0 ]] || fatal 'entrypoint must initialize the Railway volume as root'
 : "${AGENT_VAULT_MASTER_PASSWORD:?AGENT_VAULT_MASTER_PASSWORD is required}"
 
 case "${ARCADE_VAULT_MTLS_ENABLED:-}" in
@@ -51,6 +52,8 @@ esac
 [[ -z "${INFISICAL_URL:-}" ]] || fatal 'Infisical integration is not enabled for this standalone OSS broker'
 
 umask 077
+install -d -o agentvault -g agentvault -m 700 /data/.agent-vault
+chown -R agentvault:agentvault /data/.agent-vault
 secret_dir=$(mktemp -d /tmp/agent-vault-transport.XXXXXX)
 chmod 700 "$secret_dir"
 
@@ -66,6 +69,7 @@ if [[ "$ARCADE_VAULT_MTLS_ENABLED" == true ]]; then
     printf '%s' "$ARCADE_VAULT_MTLS_CLIENT_TRUST_BUNDLE_B64" | base64 -d >"$secret_dir/client-trust.pem" \
         || fatal 'client trust bundle is not valid base64'
     chmod 600 "$secret_dir"/*
+    chown -R agentvault:agentvault "$secret_dir"
 
     # Railway variables are only the input channel. Keep the key material out
     # of both child process environments and all logs after writing mode-0600
@@ -87,9 +91,10 @@ CAfile = $secret_dir/client-trust.pem
 verifyChain = yes
 verifyPeer = yes
 requireCert = yes
-sslVersionMin = TLSv1.2
+    sslVersionMin = TLSv1.2
 EOF
     chmod 600 "$secret_dir/stunnel.conf"
+    chown agentvault:agentvault "$secret_dir/stunnel.conf"
 fi
 
 master_password=$AGENT_VAULT_MASTER_PASSWORD
@@ -98,26 +103,26 @@ unset AGENT_VAULT_MASTER_PASSWORD
 mkdir -m 700 "$supervisor_dir" 2>/dev/null \
     || fatal 'supervisor state directory already exists'
 supervisor_dir_created=true
-AGENT_VAULT_MASTER_PASSWORD="$master_password" /usr/local/bin/agent-vault "$@" &
+su-exec agentvault env AGENT_VAULT_MASTER_PASSWORD="$master_password" /usr/local/bin/agent-vault "$@" &
 vault_pid=$!
 trap 'trap - TERM INT; cleanup_children; exit 0' TERM INT
 
-if [[ "$ARCADE_VAULT_MTLS_ENABLED" == true ]]; then
-    # The Vault server treats failure to bind the MITM listener as non-fatal.
-    # Do not open the mTLS ingress until both private listeners are live.
-    ready=false
-    for _ in {1..60}; do
-        kill -0 "$vault_pid" 2>/dev/null || fatal 'Agent Vault exited before becoming ready'
-        if wget -q -O /dev/null http://127.0.0.1:14321/health \
-            && (exec 3<>/dev/tcp/127.0.0.1/14322) 2>/dev/null; then
-            ready=true
-            break
-        fi
-        sleep 1
-    done
-    [[ "$ready" == true ]] || fatal 'Agent Vault control or proxy listener did not become ready'
+# The Vault server treats failure to bind the MITM listener as non-fatal.
+ # Require both listeners in every mode; health alone only checks control.
+ready=false
+for _ in {1..60}; do
+    kill -0 "$vault_pid" 2>/dev/null || fatal 'Agent Vault exited before becoming ready'
+    if wget -q -O /dev/null http://127.0.0.1:14321/health \
+        && (exec 3<>/dev/tcp/127.0.0.1/14322) 2>/dev/null; then
+        ready=true
+        break
+    fi
+    sleep 1
+done
+[[ "$ready" == true ]] || fatal 'Agent Vault control or proxy listener did not become ready'
 
-    /usr/bin/stunnel "$secret_dir/stunnel.conf" &
+if [[ "$ARCADE_VAULT_MTLS_ENABLED" == true ]]; then
+    su-exec agentvault /usr/bin/stunnel "$secret_dir/stunnel.conf" &
     tunnel_pid=$!
     tunnel_ready=false
     for _ in {1..60}; do
@@ -132,7 +137,7 @@ if [[ "$ARCADE_VAULT_MTLS_ENABLED" == true ]]; then
 fi
 unset master_password
 
-printf '%s %s\n' "$vault_pid" "$tunnel_pid" >"$supervisor_dir/processes"
+printf '%s %s %s\n' "$vault_pid" "$tunnel_pid" "$ARCADE_VAULT_MTLS_ENABLED" >"$supervisor_dir/processes"
 
 set +e
 child_pids=("$vault_pid")

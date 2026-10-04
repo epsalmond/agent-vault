@@ -30,7 +30,7 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w \
 # ---- Runtime stage ----
 FROM alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
 
-RUN apk add --no-cache bash ca-certificates stunnel \
+RUN apk add --no-cache bash ca-certificates stunnel su-exec \
     && addgroup -S agentvault && adduser -S -G agentvault -u 65532 agentvault \
     && mkdir -p /data/.agent-vault && chown -R agentvault:agentvault /data
 
@@ -42,7 +42,8 @@ RUN chmod +x /usr/local/bin/arcade-entrypoint.sh /usr/local/bin/arcade-healthche
 ENV HOME=/data
 VOLUME /data
 EXPOSE 14443
-USER agentvault
+# The entrypoint starts as root only to initialize the mounted volume owner,
+# then drops both long-running children to the fixed unprivileged account.
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=3 \
     CMD ["/usr/local/bin/arcade-healthcheck.sh"]
