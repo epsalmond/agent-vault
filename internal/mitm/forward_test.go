@@ -357,8 +357,8 @@ func TestMITMForwardStripsHopByHopHeaders(t *testing.T) {
 	if sawXVault != "" {
 		t.Errorf("upstream X-Vault = %q; must be stripped (broker-scoped)", sawXVault)
 	}
-	if sawTE != "" {
-		t.Errorf("upstream TE = %q; must be stripped (hop-by-hop)", sawTE)
+	if sawTE != "trailers" {
+		t.Errorf("upstream TE = %q; want the legal trailers value", sawTE)
 	}
 }
 

@@ -115,6 +115,10 @@ docker run -it -p 14321:14321 -p 14322:14322 \
 
 The server starts the HTTP API on port `14321` and a transparent HTTP/HTTPS proxy on port `14322`; the same listener handles `CONNECT` for `https://` upstreams and absolute-form forward-proxy requests for `http://` upstreams.
 
+TLS inside CONNECT supports HTTP/2 and HTTP/1.1, including unary and streaming gRPC. Clients must support the HTTP CONNECT proxy and trust the Agent Vault CA. Unchanged request and response bodies stream with backpressure; gRPC metadata and response trailers are preserved. Request trailer names must be declared in the initial `Trailer` header, as required by the underlying Go server API. Header and query credential substitutions work with gRPC; body substitutions are rejected for gRPC. The outer proxy connection and WebSocket upgrades use HTTP/1.1; h2c, HTTP/3, and HTTP/2 WebSocket upgrades are unsupported.
+
+Sessions and vault access are checked before each new request or RPC, including streams on an existing CONNECT tunnel. Expiration or revocation prevents new streams; an already authorized active stream may continue until it finishes or is canceled. Unknown-length HTTP/1.1 uploads use chunked transfer encoding. Upstreams requiring Content-Length must receive a known-length request.
+
 The web UI becomes available at `http://<host>:14321` and you'll be prompted to create the first user known as the instance **owner**.
 
 2. Create a [vault](https://docs.agent-vault.dev/learn/vaults), input your [credentials](https://docs.agent-vault.dev/learn/credentials), and configure [service rules](https://docs.agent-vault.dev/learn/services) in Agent Vault either through the management UI or via CLI on the Agent Vault machine. For example, you can create a credential for `ANTHROPIC_API_KEY` and create a service rule for Agent Vault to substitute a dummy value `__anthropic_api_key__` for the real key.

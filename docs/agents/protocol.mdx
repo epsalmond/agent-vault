@@ -95,7 +95,7 @@ The agent writes this line unchanged. No URL rewriting. No `Authorization` heade
 | `SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`, `GIT_SSL_CAINFO`, `DENO_CERT` | Point standard HTTP libraries at the Agent Vault root CA so the re-signed upstream TLS certificates validate |
 
 <Tip>
-The MITM listener accepts both `CONNECT host:port` (HTTPS upstreams) and absolute-form forward-proxy requests (`POST http://host/path HTTP/1.1`) on the same port. Plain-HTTP upstreams are intercepted, audited, and credential-injected just like HTTPS upstreams.
+The MITM listener accepts both `CONNECT host:port` (HTTPS upstreams) and absolute-form forward-proxy requests (`POST http://host/path HTTP/1.1`) on the same port. Plain-HTTP upstreams are intercepted, audited, and credential-injected just like HTTPS upstreams. TLS inside CONNECT supports HTTP/2 and HTTP/1.1, including streaming gRPC with metadata and response trailers. Declare request trailer names in the initial `Trailer` header. Each new request or RPC revalidates the original proxy session; already authorized active streams may finish after session expiry or revocation. Clients must support HTTP CONNECT and trust the Agent Vault CA. For gRPC, use header or query credential substitutions; body substitutions are rejected.
 </Tip>
 
 ## Propose changes

@@ -231,7 +231,7 @@ func TestMITMInjectsCredentials(t *testing.T) {
 	}
 }
 
-func TestMITMForwardsBoundedBodiesWithContentLength(t *testing.T) {
+func TestMITMStreamsUnknownLengthBodies(t *testing.T) {
 	var sawContentLength int64
 	var sawTransferEncoding []string
 	var sawBody string
@@ -276,11 +276,11 @@ func TestMITMForwardsBoundedBodiesWithContentLength(t *testing.T) {
 	if sawBody != `{"hello":"world"}` {
 		t.Fatalf("upstream body = %q", sawBody)
 	}
-	if sawContentLength != int64(len(sawBody)) {
-		t.Fatalf("upstream ContentLength = %d, want %d", sawContentLength, len(sawBody))
+	if sawContentLength != -1 {
+		t.Fatalf("upstream ContentLength = %d, want unknown", sawContentLength)
 	}
-	if len(sawTransferEncoding) != 0 {
-		t.Fatalf("upstream TransferEncoding = %v, want none", sawTransferEncoding)
+	if len(sawTransferEncoding) != 1 || sawTransferEncoding[0] != "chunked" {
+		t.Fatalf("upstream TransferEncoding = %v, want chunked", sawTransferEncoding)
 	}
 }
 
