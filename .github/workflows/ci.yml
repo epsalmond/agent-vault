@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [main]
+    branches: [main, 'luna/eng-3520-deploy']
 
 permissions:
   contents: read
