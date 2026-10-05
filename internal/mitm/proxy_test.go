@@ -68,6 +68,10 @@ type fakeInjectResult struct {
 	err    error
 }
 
+func (f *fakeCredProvider) InjectScoped(ctx context.Context, scope *brokercore.ProxyScope, targetHost string, targetPort int, path string) (*brokercore.InjectResult, error) {
+	return f.Inject(ctx, scope.VaultID, targetHost, targetPort, path)
+}
+
 func (f *fakeCredProvider) Inject(_ context.Context, _, targetHost string, targetPort int, _ string) (*brokercore.InjectResult, error) {
 	host := targetHost
 	if h, _, err := net.SplitHostPort(targetHost); err == nil {

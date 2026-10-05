@@ -70,6 +70,7 @@
               "self-hosting/environment-variables",
               "self-hosting/maintenance",
               "guides/instance-settings",
+              "guides/timed-access",
               "guides/smtp"
             ]
           }

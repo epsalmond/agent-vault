@@ -99,10 +99,21 @@ Content-Type: application/json
 
 ## Error handling
 
+A 403 `access_required` response means an existing service requires timed
+Oshioki approval. Run `agent-vault access request --service <name> --purpose
+<reason> --ssh-key <existing-enrolled-key> --oshioki-config <existing-config>`,
+approve the native prompt, then retry your original CLI. Default access is
+five minutes; `--duration` accepts whole seconds through one hour. Use the
+existing engineer/host SSH principal configured by the operator. Expired
+grants require a new human approval; replay never renews access. The helper
+returns grant metadata, never credentials. Several sessions can share that
+principal. Do not create a service proposal for `access_required`.
+
 | Status | Meaning | Action |
 |--------|---------|--------|
 | 401 | Invalid or expired token | Check `AGENT_VAULT_TOKEN` |
 | 403 | Host not allowed | Propose a proposal |
+| 403 `access_required` | Timed approval missing or expired | Request Oshioki access, approve, retry |
 | 429 | Too many pending proposals | Wait for review |
 | 502 | Missing credential or upstream unreachable | Tell user a credential may need to be added |
 

@@ -64,6 +64,7 @@ type InjectResult struct {
 // path only — no query, no fragment.
 type CredentialProvider interface {
 	Inject(ctx context.Context, vaultID, targetHost string, targetPort int, targetPath string) (*InjectResult, error)
+	InjectScoped(ctx context.Context, scope *ProxyScope, targetHost string, targetPort int, targetPath string) (*InjectResult, error)
 }
 
 // CredentialStore is the minimal store surface used by StoreCredentialProvider.
@@ -93,11 +94,12 @@ type DynamicCredentialResolver interface {
 // StoreCredentialProvider injects credentials using a CredentialStore and a
 // 32-byte AES-256-GCM key held in memory for the lifetime of the process.
 type StoreCredentialProvider struct {
-	Store      CredentialStore
-	OAuthStore OAuthStore // nil = no OAuth refresh
-	EncKey     []byte
-	Refresher  *oauth.Refresher          // nil = no OAuth refresh
-	Dynamic    DynamicCredentialResolver // nil = no dynamic-secret resolution
+	Store            CredentialStore
+	OAuthStore       OAuthStore // nil = no OAuth refresh
+	EncKey           []byte
+	Refresher        *oauth.Refresher                                 // nil = no OAuth refresh
+	Dynamic          DynamicCredentialResolver                        // nil = no dynamic-secret resolution
+	AccessAuthorizer func(context.Context, *ProxyScope, string) error // nil = legacy access policy
 }
 
 // NewStoreCredentialProvider constructs a provider. encKey must be 32 bytes.
@@ -110,6 +112,17 @@ func NewStoreCredentialProvider(s CredentialStore, encKey []byte) *StoreCredenti
 // stripped before matching. Pass "/" for targetPath when no path is
 // meaningful.
 func (p *StoreCredentialProvider) Inject(ctx context.Context, vaultID, targetHost string, targetPort int, targetPath string) (*InjectResult, error) {
+	return p.InjectScoped(ctx, &ProxyScope{VaultID: vaultID}, targetHost, targetPort, targetPath)
+}
+
+// InjectScoped matches the service before authorizing its authenticated
+// principal, and authorizes before decryption, dynamic resolution or refresh.
+// Unscoped callers carry no principal and cannot use protected services.
+func (p *StoreCredentialProvider) InjectScoped(ctx context.Context, scope *ProxyScope, targetHost string, targetPort int, targetPath string) (*InjectResult, error) {
+	if scope == nil {
+		return nil, ErrVaultAccessDenied
+	}
+	vaultID := scope.VaultID
 	// A missing row is equivalent to an empty services list — fall
 	// through to the unmatched-host policy. Any other error fails closed
 	// so a transient store failure can't silently strip enforcement.
@@ -154,6 +167,11 @@ func (p *StoreCredentialProvider) Inject(ctx context.Context, vaultID, targetHos
 	}
 	if !matched.IsEnabled() {
 		return nil, ErrServiceDisabled
+	}
+	if p.AccessAuthorizer != nil {
+		if err := p.AccessAuthorizer(ctx, scope, matched.Name); err != nil {
+			return &InjectResult{MatchedName: matched.Name, MatchedHost: matched.Host, MatchedPath: matched.Path, MatchedPort: matched.Port}, ErrAccessRequired
+		}
 	}
 	slog.Default().Debug("broker matched",
 		slog.String("vault", vaultID),

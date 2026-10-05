@@ -1,0 +1,103 @@
+---
+title: "Timed credential access"
+description: "Authorize credential use for an enrolled engineer or host through Oshioki."
+---
+
+An operator can require Oshioki approval before an enrolled agent uses an
+existing broker service. The existing SSH key proves the engineer/host
+requester; the pinned human device authorizes use. A principal maps to one
+existing Agent Vault AgentID, which may serve multiple sessions. This does
+not isolate separate coding-agent processes that share that principal/token.
+
+## Operator setup
+
+Use an existing agent with instance role `no-access` and vault role `proxy`.
+Keep its token available to the requester, and keep the vault database,
+credentials, policy file, verifier executable and verifier enrollment pins
+outside the requester's write access. Grant approval never changes these roles.
+
+Set `AGENT_VAULT_ACCESS_POLICY` to an operator-owned JSON file:
+
+```json
+{
+  "audience": "https://vault.example",
+  "helper": "/usr/local/bin/oshioki",
+  "pins_dir": "/etc/agent-vault/oshioki",
+  "protected_services": {"default": ["catalog"]},
+  "principals": [{
+    "agent_id": "existing-agent-id",
+    "ssh_public_key": "ssh-ed25519 AAAA... engineer@host",
+    "approver": "existing-enrolled-device-fingerprint"
+  }]
+}
+```
+
+The service pins directory contains the existing Oshioki `devices.json` and
+`hook.json` enrollment records, including trusted origin/RP settings for
+WebAuthn verification. Pin an active Secure Enclave or WebAuthn device.
+Software native signers are rejected. The request CLI currently asks native
+Secure Enclave devices over the existing Unix socket or NATS transport;
+browser access ceremony UI is not provided in this version.
+
+Every actor needs an enrolled proxy-only principal for a protected service,
+including scoped tokens and human/admin proxy sessions. An unmapped token
+cannot bypass protection. Services absent from the explicit policy retain
+their existing behavior. Protect all aliases that can inject the credential
+you intend to control. Invalid policy stops startup; missing/unverifiable
+approvals, helper failures and grant-store errors deny protected use.
+
+This is an additive SQLite/Postgres migration with no change to existing
+service policies until opted in. Keep consumed grant rows: they prevent replay
+from creating a new lease. Restarting retains grants and their absolute expiry.
+Rolling back to a version without timed access removes its enforcement; disable
+requester traffic before such a rollback. Removing the policy opts out of enforcement.
+
+## Request and retry
+
+Inside the existing Agent Vault proxy environment, run:
+
+```bash
+agent-vault access request --service catalog --purpose "inspect catalog health" \
+  --ssh-key ~/.ssh/id_ed25519.pub --oshioki-config /path/to/existing/oshioki/config
+```
+
+The default is five minutes. Add `--duration 1h` for an explicit duration up
+to one hour, or a shorter whole-second duration. The public key must be loaded
+in `ssh-agent`; an unencrypted private-key path also works. Ed25519 and ECDSA
+keys are supported; RSA requires at least
+2048 bits and uses SHA-2 signatures. Enrollment is an
+operator step, so this command never generates or enrolls a new key. Approve
+the native Oshioki prompt, then retry the original CLI command. You may run
+the helper proactively before a known protected operation or after a 403
+`access_required` response. No credentials are returned by the helper.
+
+| Flag | Default | Meaning |
+| --- | --- | --- |
+| `--service` | required | Existing canonical name from discovery |
+| `--purpose` | required | Reason displayed to the human approver |
+| `--ssh-key` | required | Existing enrolled private key or public key in ssh-agent |
+| `--oshioki-config` | required | Requester's existing enrollment/transport directory |
+| `--duration` | `5m` | Whole seconds from `1s` to `1h` |
+| `--vault` | `AGENT_VAULT_VAULT` | Existing vault |
+| `--audience` | Server address | Exact audience configured by the operator |
+| `--oshioki` | `oshioki` | Request-side helper executable |
+
+## Expiry
+
+The signed request binds audience, principal, host, vault, service, purpose,
+duration, request ID, nonce and a 90-second ceremony deadline. The broker
+verifies the SSH signature and independently invokes its trusted Oshioki
+verifier using its own pins, then atomically records a grant. Replay retains
+the original absolute expiry and never extends it.
+
+Each new HTTP/1 request and HTTP/2 stream checks the durable store after
+service matching and before credential decryption, dynamic resolution or
+refresh. OAuth retries check again. A reused HTTP/2 tunnel cannot open a new
+authorized stream after expiry. Streams already admitted may finish; expiry
+does not terminate ongoing streams or provider-internal lease renewal.
+
+The scope is the broker's existing service match (host/path/port), not a new
+API operation filter. Grant approval does not reveal credentials or make
+unsupported clients/transports compatible. Local fixture proofs use fake
+credentials and test identities; an enrolled Touch ID approval is a separate
+live verification step.

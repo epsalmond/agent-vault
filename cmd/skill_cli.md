@@ -24,7 +24,18 @@ metadata:
 
 TLS inside CONNECT supports HTTP/2 and HTTP/1.1, including unary and streaming gRPC with metadata and response trailers. Your client must support HTTP CONNECT and trust the Agent Vault CA. Declare request trailer names in the initial `Trailer` header. For gRPC, use header or query credential substitutions; body substitutions are rejected. Each new request or RPC revalidates the original proxy session; already authorized streams may finish after expiry or revocation.
 
-If an API call fails with 401 or 403, you can request access by creating a proposal. A human approves it and provides the credentials.
+If a response contains `access_required`, the existing service needs timed
+human approval. Run `agent-vault access request --service <name> --purpose
+<reason> --ssh-key <enrolled-key-path> --oshioki-config <existing-config-dir>`,
+approve in Oshioki, then retry the original CLI. Default access is five minutes;
+`--duration` accepts whole seconds up to one hour. An existing enrolled SSH key
+identifies the engineer/host and the human's pinned device authorizes access.
+Several sessions may share that principal. You can request this proactively
+for a known protected service. Expired access needs a new human approval;
+replaying an old approval never renews it. The helper returns no credentials.
+
+For other 401/403 responses, you can create a proposal for a missing service
+or credential. A human approves it and provides the credentials.
 
 ## When to use this
 

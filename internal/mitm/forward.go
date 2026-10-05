@@ -227,7 +227,7 @@ func (p *Proxy) forwardRequest(
 		return
 	}
 
-	inject, err := p.creds.Inject(r.Context(), scope.VaultID, host, port, r.URL.Path)
+	inject, err := p.creds.InjectScoped(r.Context(), scope, host, port, r.URL.Path)
 	if inject != nil {
 		event.MatchedService = inject.MatchedName
 		event.MatchedHost = inject.MatchedHost
@@ -239,6 +239,9 @@ func (p *Proxy) forwardRequest(
 	if err != nil {
 		errCode := "no_match"
 		status := http.StatusForbidden
+		if errors.Is(err, brokercore.ErrAccessRequired) {
+			errCode = "access_required"
+		}
 		if errors.Is(err, brokercore.ErrCredentialMissing) {
 			errCode = "credential_not_found"
 			status = http.StatusBadGateway
@@ -367,7 +370,12 @@ func (p *Proxy) forwardRequest(
 	if resp.StatusCode == http.StatusUnauthorized && inject != nil && !inject.Passthrough &&
 		(r.Method == http.MethodGet || r.Method == http.MethodHead) {
 		_ = resp.Body.Close()
-		retryInject, retryErr := p.creds.Inject(r.Context(), scope.VaultID, host, port, r.URL.Path)
+		retryInject, retryErr := p.creds.InjectScoped(r.Context(), scope, host, port, r.URL.Path)
+		if errors.Is(retryErr, brokercore.ErrAccessRequired) {
+			brokercore.WriteInjectError(w, retryErr, target, scope.VaultName, p.baseURL)
+			emit(http.StatusForbidden, "access_required")
+			return
+		}
 		if retryErr == nil && retryInject != nil && retryInject.Headers != nil {
 			retryReq := outReq.Clone(outReq.Context())
 			for k, v := range retryInject.Headers {

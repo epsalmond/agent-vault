@@ -3,6 +3,25 @@ title: "CLI reference"
 description: "Complete reference for all Agent Vault CLI commands."
 ---
 
+## Timed credential access
+
+### `agent-vault access request`
+
+Request timed Oshioki approval for an existing broker service, then retry the
+original CLI. This command returns grant metadata, never credentials. See
+[operator setup and expiry semantics](/guides/timed-access).
+
+| Flag | Default | Description |
+| --- | --- | --- |
+| `--service` | required | Existing canonical broker service name |
+| `--purpose` | required | Reason displayed to the human |
+| `--ssh-key` | required | Enrolled private key, or public key loaded in ssh-agent |
+| `--oshioki-config` | required | Requester's Oshioki enrollment/transport directory |
+| `--duration` | `5m` | Whole seconds from `1s` through `1h` |
+| `--vault` | `AGENT_VAULT_VAULT` | Existing target vault |
+| `--audience` | Server address | Exact operator-configured broker audience |
+| `--oshioki` | `oshioki` | Request-side Oshioki executable |
+
 ## Server
 
 <AccordionGroup>
@@ -38,6 +57,7 @@ description: "Complete reference for all Agent Vault CLI commands."
     | `AGENT_VAULT_LOG_LEVEL` | Fallback for `--log-level` when the flag is not set. Accepts `info` or `debug`. |
     | `AGENT_VAULT_MAX_RESPONSE_BYTES` | Maximum response body bytes streamed to agents (default `0` = unlimited). The `--max-response-bytes` flag takes precedence. |
     | `AGENT_VAULT_MAX_REQUEST_BYTES` | Maximum request body bytes forwarded to upstreams (default `1073741824` = 1 GiB). The `--max-request-bytes` flag takes precedence. |
+    | `AGENT_VAULT_ACCESS_POLICY` | Operator-owned JSON policy enabling timed Oshioki access for selected vault/service names. Unset preserves existing behavior; invalid configured policy stops startup. See [Timed access](/guides/timed-access). |
     | `AGENT_VAULT_ADDR` | Externally-reachable base URL (e.g. `https://agent-vault.example.com`). Used for links in emails, invites, and discovery, and the hostname is added as a SubjectAltName on every MITM leaf cert so clients that TLS-verify against the proxy's own hostname succeed without a shim. Falls back to `https://<FLY_APP_NAME>.fly.dev` on Fly.io, then `http://{host}:{port}`. The **Connect Your Agent** modal pre-fills the agent address from this value when set; when unset, the modal renders a literal `<AGENT_VAULT_ADDR>` placeholder. |
     | `FLY_APP_NAME` | Auto-detected on Fly.io. When `AGENT_VAULT_ADDR` is unset, derives the base URL as `https://<FLY_APP_NAME>.fly.dev`. |
     | `AGENT_VAULT_SMTP_HOST` | SMTP server host. If unset, email notifications are silently disabled. |
