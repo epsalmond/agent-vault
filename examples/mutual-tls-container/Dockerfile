@@ -1,3 +1,6 @@
+# Build from the repository root:
+# docker build -f examples/mutual-tls-container/Dockerfile -t agent-vault-mtls .
+
 # ---- Frontend build ----
 FROM node:26-alpine@sha256:2d984a15c9b54fd0aeb608b8e0d0d83529eb34d2966db27a1fb4f1edc3d298a3 AS frontend
 
@@ -30,21 +33,20 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w \
 # ---- Runtime stage ----
 FROM alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
 
-RUN apk add --no-cache ca-certificates \
+RUN apk add --no-cache bash ca-certificates stunnel su-exec \
     && addgroup -S agentvault && adduser -S -G agentvault -u 65532 agentvault \
     && mkdir -p /data/.agent-vault && chown -R agentvault:agentvault /data
 
 COPY --from=builder /agent-vault /usr/local/bin/agent-vault
-COPY scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+COPY examples/mutual-tls-container/entrypoint.sh /usr/local/bin/mtls-entrypoint.sh
+COPY examples/mutual-tls-container/healthcheck.sh /usr/local/bin/mtls-healthcheck.sh
+RUN chmod +x /usr/local/bin/mtls-entrypoint.sh /usr/local/bin/mtls-healthcheck.sh
 
 ENV HOME=/data
-VOLUME /data
-EXPOSE 14321 14322
-USER agentvault
+EXPOSE 14443
+# Start as root to initialize the mounted volume, then drop both children.
+HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=3 \
+    CMD ["/usr/local/bin/mtls-healthcheck.sh"]
 
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD wget -qO- http://localhost:14321/health || exit 1
-
-ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
-CMD ["server", "--host", "0.0.0.0", "--port", "14321"]
+ENTRYPOINT ["/usr/local/bin/mtls-entrypoint.sh"]
+CMD ["server", "--host", "127.0.0.1", "--port", "14321", "--mitm-port", "14322"]

@@ -13,9 +13,11 @@ make docker
 
 This runs a multi-stage build:
 
-1. **`node:22-alpine`** -- builds the React/Vite frontend
-2. **`golang:1.25-alpine`** -- compiles the Go binary with the embedded frontend
-3. **`alpine:3.21`** -- minimal runtime image
+1. **Node.js** -- builds the React/Vite frontend
+2. **Go** -- compiles the Go binary with the embedded frontend
+3. **Alpine** -- minimal runtime image
+
+See the Dockerfile for the pinned image versions.
 
 The final image runs as non-root user `agentvault` (UID 65532) and includes a built-in health check at `GET /health`.
 
@@ -91,7 +93,7 @@ docker compose up -d
 
 ## Volume and persistence
 
-All state lives in a single SQLite database at `/data/.agent-vault/agent-vault.db`. The Docker image declares `VOLUME /data`, so data survives container restarts as long as you mount a named volume or host path.
+All state lives in a single SQLite database at `/data/.agent-vault/agent-vault.db`. Mount a named volume or host path at `/data` to persist state across container restarts.
 
 <Tip>
   Changing the master password re-wraps the data encryption key without re-encrypting credentials. For single-instance (SQLite) deployments, use `agent-vault master-password change` while the server is stopped. When using PostgreSQL, stop all instances and use `--force` (see the [PostgreSQL guide](/self-hosting/postgres)).
@@ -109,3 +111,23 @@ docker run -it -p 14321:14321 -p 14322:14322 \
 ```
 
 See the [PostgreSQL guide](/self-hosting/postgres) for a full Docker Compose example with multiple replicas, migration steps, and architecture notes.
+
+## Optional mutual-TLS container
+
+The repository includes an opt-in [mutual-TLS example](https://github.com/Infisical/agent-vault/tree/main/examples/mutual-tls-container).
+Build it explicitly from the repository root:
+
+```bash
+docker build -f examples/mutual-tls-container/Dockerfile -t agent-vault-mtls .
+```
+
+This single-instance SQLite example keeps the API and proxy on loopback,
+exposes the proxy through stunnel on `14443`, requires a master password,
+and initializes mounted-volume ownership before dropping privileges. Its
+`AGENT_VAULT_MTLS_*` settings do not apply to the standard image.
+
+If you previously built the root Dockerfile for this transport wrapper, switch
+your build to the example before replacing that image. The root Dockerfile now
+uses the standard entrypoint and exposes the normal API/proxy listeners; it
+does not start stunnel. The example retains the earlier environment names as
+compatibility aliases. Follow its README for inputs and migration details.

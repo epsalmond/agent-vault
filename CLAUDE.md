@@ -11,6 +11,10 @@ make test         # go test ./...
 make docker       # Multi-stage Docker image; data persisted at /data/.agent-vault/
 ```
 
+The root Dockerfile builds the standard non-root image. The optional
+[mutual-TLS container](examples/mutual-tls-container) keeps its SQLite-specific
+transport wrapper and mounted-volume initialization separate from that image.
+
 **TDD rule: tests must pass before work is considered complete.** Command smoke tests live in [cmd/cmd_test.go](cmd/cmd_test.go).
 
 ## Top-level layout

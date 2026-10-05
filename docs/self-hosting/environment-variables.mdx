@@ -29,7 +29,25 @@ description: "Configuration for deploying an instance of Agent Vault."
 | `DB_MAX_IDLE_CONNS` | Optional (defaults to `10`) | Maximum number of idle Postgres connections kept in the pool per instance. Only applies when `DATABASE_URL` is set. See [connection pooling](/self-hosting/postgres#operational-notes). |
 | `DB_CONN_MAX_LIFETIME` | Optional (defaults to `5m`) | Maximum lifetime of a Postgres connection before it is closed and replaced. Go duration string (e.g. `5m`, `1h`). Only applies when `DATABASE_URL` is set. See [connection pooling](/self-hosting/postgres#operational-notes). |
 
+## Optional mutual-TLS container
+
+The `examples/mutual-tls-container` image has four additional inputs,
+not consumed by the standard image or server CLI:
+
+| Variable | Required in the example | Description |
+| --- | --- | --- |
+| `AGENT_VAULT_MTLS_ENABLED` | Yes | Explicit `true` or `false`; `true` exposes the mTLS proxy on `14443`. |
+| `AGENT_VAULT_MTLS_SERVER_CERT_B64` | When enabled | Base64 PEM server certificate/chain. |
+| `AGENT_VAULT_MTLS_SERVER_KEY_B64` | When enabled | Base64 PEM server private key. |
+| `AGENT_VAULT_MTLS_CLIENT_TRUST_BUNDLE_B64` | When enabled | Base64 PEM bundle used to verify client certificates. |
+
+The example also requires `AGENT_VAULT_MASTER_PASSWORD`. Canonical inputs take
+precedence over the legacy aliases listed in its README, including explicit
+empty values. See [Docker](/self-hosting/docker) for the explicit build command
+and migration notice.
+
 ## Email SMTP configuration
+
 
 Configure SMTP to enable Agent Vault to send emails for verification codes, vault invites, and notifications.
 
@@ -81,4 +99,3 @@ Agent Vault collects anonymous usage telemetry to help improve the product. No c
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `AGENT_VAULT_TELEMETRY` | Optional (defaults to `true`) | Set to `false` to disable anonymous usage telemetry. Also overridable with `--telemetry=false` on the CLI. |
-

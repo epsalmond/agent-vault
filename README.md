@@ -115,6 +115,13 @@ docker run -it -p 14321:14321 -p 14322:14322 \
 
 The server starts the HTTP API on port `14321` and a transparent HTTP/HTTPS proxy on port `14322`; the same listener handles `CONNECT` for `https://` upstreams and absolute-form forward-proxy requests for `http://` upstreams.
 
+The root Dockerfile builds the standard non-root image. For an optional
+single-instance SQLite deployment with an mTLS proxy on `14443`, build the
+[mutual-TLS container example](examples/mutual-tls-container) explicitly.
+If your previous root-Dockerfile image used the bundled transport wrapper,
+switch to that example before replacing it; the standard image does not start
+stunnel. The example preserves mounted-volume setup and legacy input aliases.
+
 TLS inside CONNECT supports HTTP/2 and HTTP/1.1, including unary and streaming gRPC. Clients must support the HTTP CONNECT proxy and trust the Agent Vault CA. Unchanged request and response bodies stream with backpressure; gRPC metadata and response trailers are preserved. Request trailer names must be declared in the initial `Trailer` header, as required by the underlying Go server API. Header and query credential substitutions work with gRPC; body substitutions are rejected for gRPC. The outer proxy connection and WebSocket upgrades use HTTP/1.1; h2c, HTTP/3, and HTTP/2 WebSocket upgrades are unsupported.
 
 Sessions and vault access are checked before each new request or RPC, including streams on an existing CONNECT tunnel. Expiration or revocation prevents new streams; an already authorized active stream may continue until it finishes or is canceled. Unknown-length HTTP/1.1 uploads use chunked transfer encoding. Upstreams requiring Content-Length must receive a known-length request.

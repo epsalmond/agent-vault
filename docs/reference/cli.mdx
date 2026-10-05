@@ -66,6 +66,20 @@ description: "Complete reference for all Agent Vault CLI commands."
     | `INFISICAL_LDAP_AUTH_USERNAME` | LDAP bind username. |
     | `INFISICAL_LDAP_AUTH_PASSWORD` | LDAP bind password. |
     | `AGENT_VAULT_TELEMETRY` | Set to `false` to disable anonymous usage telemetry. No credential values or request payloads are ever included. |
+
+    The optional mutual-TLS container example consumes these additional inputs;
+    they are not server CLI options or settings for the standard image:
+
+    | Variable | Description |
+    | --- | --- |
+    | `AGENT_VAULT_MTLS_ENABLED` | Required `true` or `false`; enables the example's mTLS proxy on `14443`. |
+    | `AGENT_VAULT_MTLS_SERVER_CERT_B64` | Base64 PEM server certificate/chain; required when enabled. |
+    | `AGENT_VAULT_MTLS_SERVER_KEY_B64` | Base64 PEM server private key; required when enabled. |
+    | `AGENT_VAULT_MTLS_CLIENT_TRUST_BUNDLE_B64` | Base64 PEM client-certificate trust bundle; required when enabled. |
+
+    The example requires a master password. Canonical inputs take precedence
+    over its documented legacy aliases, including explicit empty values. See
+    [Docker](/self-hosting/docker) for its build and migration instructions.
   </Accordion>
 
   <Accordion title="agent-vault server stop">
