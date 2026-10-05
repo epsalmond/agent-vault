@@ -103,7 +103,8 @@ unset AGENT_VAULT_MASTER_PASSWORD
 mkdir -m 700 "$supervisor_dir" 2>/dev/null \
     || fatal 'supervisor state directory already exists'
 supervisor_dir_created=true
-su-exec agentvault env AGENT_VAULT_MASTER_PASSWORD="$master_password" /usr/local/bin/agent-vault "$@" &
+# su-exec resets HOME from the passwd entry; keep SQLite and the MITM CA on the mounted volume.
+su-exec agentvault env HOME=/data AGENT_VAULT_MASTER_PASSWORD="$master_password" /usr/local/bin/agent-vault "$@" &
 vault_pid=$!
 trap 'trap - TERM INT; cleanup_children; exit 0' TERM INT
 
