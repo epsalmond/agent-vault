@@ -1,13 +1,13 @@
-// Package mitm implements an HTTP/1.1 forward-proxy ingress for agent
+// Package mitm implements an HTTP forward-proxy ingress for agent
 // traffic.
 //
 // A Proxy accepts two request shapes on the same listener:
 //
 //   - CONNECT host:port — for HTTPS upstreams. The proxy hijacks the
 //     connection, terminates client-side TLS using a leaf minted on
-//     demand by a ca.Provider, and forwards each tunnelled HTTP/1.1
-//     request to the originally-requested upstream over a fresh TLS
-//     connection with strict verification against the system trust
+//     demand by a ca.Provider, and forwards each tunnelled HTTP/1.1 or HTTP/2
+//     request to the originally-requested upstream over TLS
+//     connections with strict verification against the system trust
 //     store.
 //
 //   - Absolute-form forward-proxy requests (e.g. POST http://host/path
@@ -21,15 +21,15 @@
 // trust the CA that signs the per-host MITM leaves for upstream
 // certificate verification.
 //
-// v1 scope: HTTP/1.1 only (ALPN pinned). HTTPS upstreams must use
+// TLS CONNECT tunnels support HTTP/2 and HTTP/1.1. HTTPS upstreams must use
 // CONNECT — the forward-proxy path rejects https:// URLs to avoid
 // silently TLS-stripping.
 package mitm
 
 import (
 	"context"
-	"log/slog"
 	"crypto/tls"
+	"log/slog"
 	"net"
 	"net/http"
 	"sync/atomic"
@@ -83,7 +83,7 @@ func New(addr string, opts Options) *Proxy {
 	upstream := &http.Transport{
 		DialContext:           netguard.SafeDialContext(netguard.AllowPrivateFromEnv()),
 		TLSClientConfig:       &tls.Config{MinVersion: tls.VersionTLS12},
-		ForceAttemptHTTP2:     false,
+		ForceAttemptHTTP2:     true,
 		MaxIdleConns:          100,
 		IdleConnTimeout:       90 * time.Second,
 		TLSHandshakeTimeout:   10 * time.Second,

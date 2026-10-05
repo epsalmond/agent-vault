@@ -18,8 +18,8 @@ const DefaultMaxRequestBytes int64 = 1 << 30 // 1 GiB
 const MaxMaterializeBytes int64 = 64 << 20 // 64 MiB
 
 // ProxyScope is the resolved identity + vault context for a proxy request.
-// It is produced once per CONNECT on the MITM ingress and carried through
-// to credential injection.
+// It is refreshed for each proxied request, including requests inside
+// an existing CONNECT tunnel, and carried through to credential injection.
 type ProxyScope struct {
 	AgentID   string // non-empty for agent tokens
 	UserID    string // non-empty for user sessions

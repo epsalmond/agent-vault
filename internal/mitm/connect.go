@@ -11,6 +11,7 @@ import (
 
 	"github.com/Infisical/agent-vault/internal/brokercore"
 	"github.com/Infisical/agent-vault/internal/ratelimit"
+	"golang.org/x/net/http2"
 )
 
 // mitmIPKey is the rate-limit key for the per-IP flood gate shared by
@@ -43,7 +44,7 @@ func isLoopbackPeer(r *http.Request) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
-// handleConnect terminates a CONNECT tunnel and serves HTTP/1.1 off the
+// handleConnect terminates a CONNECT tunnel and serves HTTP/1.1 or HTTP/2 off the
 // resulting TLS connection. The upstream target is taken from the
 // CONNECT request line (r.Host) and captured in a closure so subsequent
 // Host-header rewrites by the client cannot redirect the tunnel.
@@ -106,7 +107,7 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 
 	tlsConf := &tls.Config{
 		MinVersion: tls.VersionTLS12,
-		NextProtos: []string{"http/1.1"},
+		NextProtos: []string{"h2", "http/1.1"},
 		GetCertificate: func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
 			sni := hello.ServerName
 			if sni == "" {
@@ -126,6 +127,40 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = tlsConn.SetDeadline(time.Time{})
 
+	// Revalidate the original proxy identity for each request, including each
+	// multiplexed HTTP/2 stream. The tunnel's vault and destination stay pinned.
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		freshScope, err := p.sessions.ResolveForProxy(r.Context(), token, hint)
+		if err != nil {
+			writeAuthError(w, err)
+			return
+		}
+		if freshScope.VaultID != scope.VaultID {
+			writeAuthError(w, brokercore.ErrVaultHintMismatch)
+			return
+		}
+		p.forwardRequest(w, r, target, host, port, true, freshScope)
+	})
+	if tlsConn.ConnectionState().NegotiatedProtocol == http2.NextProtoTLS {
+		// HTTP/2 flow control bounds buffering; active streams are not subject
+		// to HTTP/1 body-read deadlines. Idle connections and stalled writes
+		// are bounded independently of the duration of a healthy RPC.
+		h2 := &http2.Server{
+			MaxConcurrentStreams:         100,
+			MaxUploadBufferPerConnection: 1 << 20,
+			MaxUploadBufferPerStream:     256 << 10,
+			IdleTimeout:                  2 * time.Minute,
+			ReadIdleTimeout:              30 * time.Second,
+			PingTimeout:                  15 * time.Second,
+			WriteByteTimeout:             30 * time.Second,
+		}
+		h2.ServeConn(tlsConn, &http2.ServeConnOpts{
+			Handler:    handler,
+			BaseConfig: &http.Server{ReadHeaderTimeout: 10 * time.Second},
+		})
+		return
+	}
+
 	// Serve HTTP/1.1 requests off the terminated TLS connection. The
 	// listener yields the connection once, then blocks until Close so
 	// http.Serve stays alive while the connection goroutine is active.
@@ -133,7 +168,7 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 	// closes the listener so Serve returns.
 	listener := newOneShotListener(tlsConn)
 	srv := &http.Server{
-		Handler: p.forwardHandler(target, host, port, scope),
+		Handler: handler,
 		// ReadHeaderTimeout and ReadTimeout bound the request side
 		// (slow-loris defense). IdleTimeout caps keep-alives between
 		// requests. The upstream transport's ResponseHeaderTimeout

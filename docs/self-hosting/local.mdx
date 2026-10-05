@@ -85,9 +85,11 @@ agent-vault server               # transparent proxy on 14322 (default)
 agent-vault server --mitm-port 0 # disable
 ```
 
-<Warning>
-HTTP/1.1 at the ingress (WebSocket upgrades over HTTP/1.1 are transparently brokered — useful for voice/realtime APIs like OpenAI Realtime). The terminator advertises only `http/1.1` in ALPN, so clients offering both `h2` and `http/1.1` fall back to `http/1.1` and have credentials injected normally; clients that strictly require `h2` fail the TLS handshake with a `no_application_protocol` alert.
-</Warning>
+TLS inside CONNECT negotiates `h2` or `http/1.1`, supporting unary and streaming gRPC as well as HTTP/1.1 APIs. Clients must support the HTTP CONNECT proxy and trust the Agent Vault root CA. Request bodies without substitutions stream without buffering the entire upload, and gRPC metadata and response trailers pass through. Request trailer names must be declared in the initial `Trailer` header; undeclared request trailers are not exposed by the Go server API. gRPC body substitutions are rejected; use header or query substitutions.
+
+The outer CONNECT request and WebSocket upgrades use HTTP/1.1. Cleartext HTTP/2 (h2c), HTTP/3, and HTTP/2 WebSocket upgrades are unsupported. Unknown-length HTTP/1.1 uploads use chunked transfer encoding; supply a known-length body for upstreams that require Content-Length.
+
+Sessions and vault grants are revalidated before each new request or RPC on an open tunnel. Expired or revoked sessions cannot start new streams. Already authorized active streams may finish or be canceled by their client.
 
 A software-backed root CA is created on first launch under `~/.agent-vault/ca/` (private key encrypted with the DEK). Clients must trust this root before the proxied TLS handshake will succeed. `agent-vault vault run` handles this automatically for child processes — only fetch the CA manually when configuring agents outside of `vault run` (containers, CI, invited agents).
 

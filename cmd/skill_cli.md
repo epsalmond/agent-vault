@@ -22,6 +22,8 @@ metadata:
 
 `HTTPS_PROXY` and `HTTP_PROXY` in your environment route all outbound HTTP traffic through an Agent Vault proxy. The proxy matches each request's host against configured services, injects the real credential, and forwards to the upstream. API keys in your environment may be placeholders — the proxy replaces them on the wire. Just make requests normally.
 
+TLS inside CONNECT supports HTTP/2 and HTTP/1.1, including unary and streaming gRPC with metadata and response trailers. Your client must support HTTP CONNECT and trust the Agent Vault CA. Declare request trailer names in the initial `Trailer` header. For gRPC, use header or query credential substitutions; body substitutions are rejected. Each new request or RPC revalidates the original proxy session; already authorized streams may finish after expiry or revocation.
+
 If an API call fails with 401 or 403, you can request access by creating a proposal. A human approves it and provides the credentials.
 
 ## When to use this

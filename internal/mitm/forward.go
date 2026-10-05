@@ -170,19 +170,8 @@ func hostHeaderForScheme(scheme, target string) string {
 	return host
 }
 
-// forwardHandler returns an http.Handler that forwards each request to
-// target (the host:port captured from the original CONNECT line). Using
-// a closed-over target rather than r.Host defeats post-tunnel host
-// rewriting. host is the port-stripped form, already validated in
-// handleConnect; scope is the vault context resolved at CONNECT time.
-func (p *Proxy) forwardHandler(target, host string, port int, scope *brokercore.ProxyScope) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		p.forwardRequest(w, r, target, host, port, true, scope)
-	})
-}
-
 // forwardRequest is the shared body for both the CONNECT-tunnelled HTTPS
-// path (forwardHandler) and the plain-HTTP forward-proxy path
+// path (handleConnect) and the plain-HTTP forward-proxy path
 // (handleForward). target is the canonical "host:port"; host is the
 // port-stripped form used for credential lookup. useTLSUpstream selects
 // https vs http for the outbound URL.
@@ -264,7 +253,13 @@ func (p *Proxy) forwardRequest(
 	var contentLength int64
 
 	hasSubs := brokercore.HasBodySubstitutions(inject.Substitutions)
-	canStream := !hasSubs && r.ContentLength >= 0
+	if hasSubs && strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "application/grpc") {
+		brokercore.WriteProxyError(w, http.StatusBadRequest, "unsupported_body_substitution",
+			"Body substitutions are not supported for gRPC; use header or query substitutions.")
+		emit(http.StatusBadRequest, "unsupported_body_substitution")
+		return
+	}
+	canStream := !hasSubs || r.Header.Get("Content-Encoding") != ""
 
 	if canStream {
 		body = r.Body
@@ -289,6 +284,13 @@ func (p *Proxy) forwardRequest(
 	outReq.Host = hostHeaderForScheme(scheme, target)
 	outReq.ContentLength = contentLength
 
+	// Trailer values become available only after the inbound body reaches EOF.
+	// Never allow trailers to replace injected credentials or broker identity.
+	outReq.Trailer = requestTrailers(r, inject)
+	if len(outReq.Trailer) > 0 {
+		outReq.Body = &trailerBody{ReadCloser: outReq.Body, source: r.Trailer, target: outReq.Trailer}
+	}
+
 	wsUpgrade := isWebSocketUpgrade(r)
 
 	if wsUpgrade {
@@ -296,6 +298,11 @@ func (p *Proxy) forwardRequest(
 		brokercore.ApplyInjection(r.Header, outReq.Header, inject, websocketHandshakeHeaderNames...)
 	} else {
 		brokercore.ApplyInjection(r.Header, outReq.Header, inject)
+		// TE has one permitted HTTP/2 value. Reconstruct it rather than
+		// forwarding arbitrary HTTP/1 transfer-coding preferences.
+		if acceptsTrailers(r.Header) {
+			outReq.Header.Set("Te", "trailers")
+		}
 	}
 
 	if err := brokercore.ApplySubstitutions(outReq.URL, outReq.Header, inject.Substitutions); err != nil {
@@ -323,6 +330,13 @@ func (p *Proxy) forwardRequest(
 			outReq.ContentLength = newLen
 			outReq.Header.Set("Content-Length", fmt.Sprintf("%d", newLen))
 		}
+	}
+
+	if len(outReq.Trailer) > 0 {
+		// HTTP/1.1 upstream fallback requires chunked framing for trailers,
+		// even when the inbound HTTP/2 body had a known length.
+		outReq.ContentLength = -1
+		outReq.Header.Del("Content-Length")
 	}
 
 	if wsUpgrade {
@@ -389,15 +403,32 @@ func (p *Proxy) forwardRequest(
 		return
 	}
 
+	connectionHeaders := connectionHeaderNames(resp.Header)
 	for k, vv := range resp.Header {
-		if brokercore.ShouldStripResponseHeader(k) {
+		if connectionHeaders[http.CanonicalHeaderKey(k)] || brokercore.ShouldStripResponseHeader(k) {
 			continue
 		}
 		for _, v := range vv {
 			w.Header().Add(k, v)
 		}
 	}
+	// An HTTP/2 upstream may add undeclared trailers at EOF. HTTP/1.1
+	// downstream needs chunked framing to preserve those trailers, so do
+	// not forward its Content-Length even before trailer names are known.
+	if len(resp.Trailer) > 0 || (r.ProtoMajor == 1 && resp.ProtoMajor == 2) {
+		w.Header().Del("Content-Length")
+	}
+	for k := range resp.Trailer {
+		if allowedResponseTrailer(k, connectionHeaders) {
+			w.Header().Add("Trailer", k)
+		}
+	}
 	w.WriteHeader(resp.StatusCode)
+	// Flush response headers before reading body: an upstream can send
+	// headers or a reply before the client finishes its streaming upload.
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
 
 	var src io.Reader = resp.Body
 	if p.maxResponseBytes > 0 {
@@ -407,11 +438,16 @@ func (p *Proxy) forwardRequest(
 	if f, ok := w.(http.Flusher); ok {
 		dst = &flushingWriter{w: w, f: f}
 	}
-	n, _ := io.Copy(dst, src)
+	n, copyErr := io.Copy(dst, src)
+	if copyErr != nil {
+		emit(resp.StatusCode, "response_read_error")
+		// A truncated RPC must not end with an apparently successful stream.
+		panic(http.ErrAbortHandler)
+	}
 
 	if p.maxResponseBytes > 0 && n == p.maxResponseBytes {
 		var probe [1]byte
-		if extra, _ := resp.Body.Read(probe[:]); extra > 0 {
+		if extra, probeErr := resp.Body.Read(probe[:]); extra > 0 || (probeErr != nil && !errors.Is(probeErr, io.EOF)) {
 			p.logger.Warn("response body truncated mid-stream, aborting connection",
 				slog.String("host", target),
 				slog.String("path", r.URL.Path),
@@ -423,6 +459,12 @@ func (p *Proxy) forwardRequest(
 		}
 	}
 
+	for k, vv := range resp.Trailer {
+		if allowedResponseTrailer(k, connectionHeaders) {
+			// TrailerPrefix also handles trailers discovered only at EOF.
+			w.Header()[http.TrailerPrefix+k] = vv
+		}
+	}
 	emit(resp.StatusCode, "")
 }
 
