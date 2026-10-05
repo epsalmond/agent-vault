@@ -40,7 +40,6 @@ COPY scripts/arcade-healthcheck.sh /usr/local/bin/arcade-healthcheck.sh
 RUN chmod +x /usr/local/bin/arcade-entrypoint.sh /usr/local/bin/arcade-healthcheck.sh
 
 ENV HOME=/data
-VOLUME /data
 EXPOSE 14443
 # The entrypoint starts as root only to initialize the mounted volume owner,
 # then drops both long-running children to the fixed unprivileged account.

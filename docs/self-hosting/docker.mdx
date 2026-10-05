@@ -91,7 +91,7 @@ docker compose up -d
 
 ## Volume and persistence
 
-All state lives in a single SQLite database at `/data/.agent-vault/agent-vault.db`. The Docker image declares `VOLUME /data`, so data survives container restarts as long as you mount a named volume or host path.
+All state lives in a single SQLite database at `/data/.agent-vault/agent-vault.db`. Mount a named volume or host path at `/data` to persist state across container restarts. Railway deployments should attach a Railway volume at this path; Docker Compose and CLI users can use the named volume shown above.
 
 <Tip>
   Changing the master password re-wraps the data encryption key without re-encrypting credentials. For single-instance (SQLite) deployments, use `agent-vault master-password change` while the server is stopped. When using PostgreSQL, stop all instances and use `--force` (see the [PostgreSQL guide](/self-hosting/postgres)).
