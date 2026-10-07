@@ -29,6 +29,7 @@ func CountSourceTables(src *SQLStore) ([]TableCount, error) {
 		"users",
 		"agents",
 		"vault_grants",
+		"timed_access_grants",
 		"credentials",
 		"credential_oauth",
 		"credential_oauth_states",
@@ -125,6 +126,7 @@ func MigrateData(ctx context.Context, src, dst *SQLStore, progressFn func(table 
 		{"users", copyUsers},
 		{"agents", copyAgents},
 		{"vault_grants", copyVaultGrants},
+		{"timed_access_grants", copyTimedAccessGrants},
 		{"credentials", copyCredentials},
 		{"credential_oauth", copyCredentialOAuth},
 		{"credential_oauth_states", copyCredentialOAuthStates},
@@ -492,6 +494,34 @@ func copyVaultGrants(ctx context.Context, src *SQLStore, tx *sql.Tx, dstDialect 
 			dstDialect.Rebind("INSERT INTO vault_grants (actor_id, actor_type, vault_id, role, created_at) VALUES (?, ?, ?, ?, ?)"),
 			actorID, actorType, vaultID, role, ca,
 		)
+		if err != nil {
+			return n, err
+		}
+		n++
+	}
+	return n, rows.Err()
+}
+
+// Copy expired rows as well as live grants: every row also records a consumed
+// request ID. Copy absolute millisecond timestamps verbatim, never recompute
+// duration from the cutover time or deserialize them as SQL timestamps.
+func copyTimedAccessGrants(ctx context.Context, src *SQLStore, tx *sql.Tx, dstDialect Dialect) (int, error) {
+	rows, err := src.db.QueryContext(ctx, `SELECT request_id, request_hash, principal, agent_id, vault_id,
+		service, approved_at_ms, expires_at_ms FROM timed_access_grants`)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = rows.Close() }()
+	n := 0
+	for rows.Next() {
+		var requestID, requestHash, principal, agentID, vaultID, service string
+		var approvedAt, expiresAt int64
+		if err := rows.Scan(&requestID, &requestHash, &principal, &agentID, &vaultID, &service, &approvedAt, &expiresAt); err != nil {
+			return n, err
+		}
+		_, err := tx.ExecContext(ctx, dstDialect.Rebind(`INSERT INTO timed_access_grants
+			(request_id, request_hash, principal, agent_id, vault_id, service, approved_at_ms, expires_at_ms)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)`), requestID, requestHash, principal, agentID, vaultID, service, approvedAt, expiresAt)
 		if err != nil {
 			return n, err
 		}

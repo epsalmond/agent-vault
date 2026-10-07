@@ -3,6 +3,7 @@ package brokercore
 import "errors"
 
 var (
+	ErrAccessRequired = errors.New("brokercore: an active timed credential access grant is required")
 	// ErrInvalidSession means the supplied session token is missing, unknown,
 	// or expired. The MITM ingress maps this to a 407 challenge.
 	ErrInvalidSession = errors.New("brokercore: invalid or expired session")

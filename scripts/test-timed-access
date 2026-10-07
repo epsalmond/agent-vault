@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ $# != 1 ]]; then
+  echo 'usage: scripts/test-timed-access /absolute/path/to/oshioki-worktree' >&2
+  exit 2
+fi
+oshioki_repo=$(realpath "$1")
+repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
+proof_dir=$(mktemp -d -t agent-vault-access-proof.XXXXXXXX)
+trap 'rm -f -- "$proof_dir/agent-vault"; rmdir -- "$proof_dir"' EXIT
+cd "$oshioki_repo"
+cargo build --manifest-path "$oshioki_repo/Cargo.toml" --locked -p oshioki-hook
+target_dir=$(cargo metadata --manifest-path "$oshioki_repo/Cargo.toml" --no-deps --format-version 1 | jq -r .target_directory)
+cd "$repo_root"
+go build -o "$proof_dir/agent-vault" .
+go test ./internal/server -run '^TestTimedAccessCLIProof$' -count=1 -v -timeout=45s -args \
+  -oshioki-access-test-binary="$target_dir/debug/oshioki" \
+  -agent-vault-access-test-binary="$proof_dir/agent-vault"

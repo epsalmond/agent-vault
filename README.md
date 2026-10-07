@@ -121,7 +121,6 @@ single-instance SQLite deployment with an mTLS proxy on `14443`, build the
 If your previous root-Dockerfile image used the bundled transport wrapper,
 switch to that example before replacing it; the standard image does not start
 stunnel. The example preserves mounted-volume setup and legacy input aliases.
-
 TLS inside CONNECT supports HTTP/2 and HTTP/1.1, including unary and streaming gRPC. Clients must support the HTTP CONNECT proxy and trust the Agent Vault CA. Unchanged request and response bodies stream with backpressure; gRPC metadata and response trailers are preserved. Request trailer names must be declared in the initial `Trailer` header, as required by the underlying Go server API. Header and query credential substitutions work with gRPC; body substitutions are rejected for gRPC. The outer proxy connection and WebSocket upgrades use HTTP/1.1; h2c, HTTP/3, and HTTP/2 WebSocket upgrades are unsupported.
 
 Sessions and vault access are checked before each new request or RPC, including streams on an existing CONNECT tunnel. Expiration or revocation prevents new streams; an already authorized active stream may continue until it finishes or is canceled. Unknown-length HTTP/1.1 uploads use chunked transfer encoding. Upstreams requiring Content-Length must receive a known-length request.
@@ -191,6 +190,19 @@ Watch how Agent Vault brokers credentials for AI agents: store your keys once, r
 Want a full deployment walkthrough? See [Run Hermes on a VPS](https://docs.agent-vault.dev/guides/hermes-on-vps) for an end-to-end example with a brokered agent on a separate box.
 
 ## Best Practices
+
+### Timed Oshioki access (optional)
+
+Set `AGENT_VAULT_ACCESS_POLICY` to an operator-owned policy to require human
+approval for selected existing vault/services. Enroll an existing engineer/host
+SSH key against an existing `no-access`/`proxy` AgentID and pin the human's
+Oshioki device on the service. Requesters run `agent-vault access request
+--service <name> --purpose <reason> --ssh-key <existing-key>
+--oshioki-config <existing-config>`, approve the native prompt, then retry
+their CLI. Access defaults to five minutes, with an explicit maximum of one
+hour. New HTTP/1 requests and HTTP/2 streams check expiry before credentials
+are resolved. Existing admitted streams may finish. See
+[setup, roles, migration and rollback](docs/guides/timed-access.mdx).
 
 1. Security:
 

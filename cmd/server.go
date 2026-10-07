@@ -29,6 +29,7 @@ import (
 	"github.com/Infisical/agent-vault/internal/session"
 	"github.com/Infisical/agent-vault/internal/store"
 	"github.com/Infisical/agent-vault/internal/telemetry"
+	"github.com/Infisical/agent-vault/internal/timedaccess"
 	"github.com/spf13/cobra"
 )
 
@@ -237,6 +238,17 @@ func attachMITMIfEnabled(srv *server.Server, host string, mitmPort int, masterKe
 // attachServerExtensions wires optional subsystems (MITM, Infisical) onto srv.
 // Both bootstrap paths (foreground and detached child) call this.
 func attachServerExtensions(srv *server.Server, host string, mitmPort int, masterKey []byte, db store.Store, logger *slog.Logger, maxRespBytes, maxReqBytes int64) error {
+	if path := os.Getenv("AGENT_VAULT_ACCESS_POLICY"); path != "" {
+		accessStore, ok := db.(store.TimedAccessStore)
+		if !ok {
+			return fmt.Errorf("timed access requires durable store support")
+		}
+		manager, err := timedaccess.Load(path, accessStore)
+		if err != nil {
+			return fmt.Errorf("loading timed access policy: %w", err)
+		}
+		srv.AttachTimedAccess(manager)
+	}
 	if err := attachMITMIfEnabled(srv, host, mitmPort, masterKey, db, maxRespBytes, maxReqBytes); err != nil {
 		return err
 	}

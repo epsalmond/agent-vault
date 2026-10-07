@@ -196,6 +196,9 @@ func WriteForbiddenHint(w http.ResponseWriter, targetHost, vaultName, baseURL st
 // responding should do so before calling this helper.
 func WriteInjectError(w http.ResponseWriter, err error, targetHost, vaultName, baseURL string) {
 	switch {
+	case errors.Is(err, ErrAccessRequired):
+		writeProxyErrorWithHelp(w, http.StatusForbidden, "access_required",
+			"Timed credential access is denied or expired. Run agent-vault access request with the matched service and a purpose, approve in Oshioki, then retry.", baseURL)
 	case errors.Is(err, ErrServiceNotFound):
 		WriteForbiddenHint(w, targetHost, vaultName, baseURL)
 	case errors.Is(err, ErrServiceDisabled):
